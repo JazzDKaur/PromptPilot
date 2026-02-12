@@ -448,7 +448,7 @@ if has_result:
 tab_names = ["📊 Score", "🔍 Performance Breakdown"]
 if st.session_state.show_correct_prompt:
     tab_names.append("✅ Sample Prompt")
-    tab_names.append("📌 Expected Prompt")
+    tab_names.append("📌 Sample Expected Prompt")
 
 tabs = st.tabs(tab_names)
 
@@ -521,7 +521,7 @@ if st.session_state.show_correct_prompt:
 # ---------------------------------
 if st.session_state.show_correct_prompt:
     with tabs[3]:
-        st.subheader("📌 Expected Prompt (from Excel - Column 4)")
+        st.subheader("📌 Sample Expected Prompt")
         if expected_prompt_from_excel.strip():
             st.markdown(
                 f"<div style='background:#f7f7f7;padding:15px;border-radius:8px; border:1px solid #ddd; white-space:pre-wrap;'>{expected_prompt_from_excel}</div>",
@@ -529,4 +529,5 @@ if st.session_state.show_correct_prompt:
             )
         else:
             st.info("No Expected Prompt found in Excel Column 4 for this scenario.")
+
 
