@@ -44,7 +44,7 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 def load_usecases(file_path):
     return pd.read_excel(file_path)
 
-usecases_df = load_usecases("Dataset/PromptUseCases.xlsx")
+usecases_df = load_usecases("PromptUseCases.xlsx")
 
 # ---------------------------------
 # Session State Init
@@ -488,3 +488,4 @@ if st.session_state.show_correct_prompt:
             )
         else:
             st.info("No Expected Prompt found in Excel Column 4 for this scenario.")
+
