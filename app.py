@@ -5,32 +5,43 @@ from groq import Groq
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
 
+# ---------------------------------
+# Page Configuration
+# ---------------------------------
+st.set_page_config(page_title="PromptPilot", layout="wide")
 
 st.markdown(
     """
+    <style>
+      .block-container { padding-bottom: 80px !important; }
+      section[data-testid="stSidebar"] { height: 100vh; }
+      .stTabs [data-baseweb="tab-list"] { gap: 12px; }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ---------------------------------
+# Professional Banner
+# ---------------------------------
+st.markdown(
+    """
     <div style="
-        background: linear-gradient(90deg, #1f4e79, #2e75b6);
-        padding: 22px 10px;
+        background: linear-gradient(90deg, #0f2027, #203a43, #2c5364);
+        padding: 22px 14px;
         border-radius: 10px;
         text-align: center;
         color: white;
         margin-bottom: 18px;
     ">
-        <h1 style="margin-bottom:5px;">PromptPilot</h1>
-        <h4 style="font-weight:400;">
+        <h1 style="margin:0;">PromptPilot</h1>
+        <h4 style="margin:6px 0 0 0; font-weight:400;">
             An Interactive AI Prompt Writing Training & Evaluation Platform
         </h4>
     </div>
     """,
     unsafe_allow_html=True
 )
-
-# ---------------------------------
-# Page Configuration
-# ---------------------------------
-st.set_page_config(page_title="PromptPilot", layout="wide")
-
-
 
 # ---------------------------------
 # Initialize Groq Client
@@ -44,7 +55,7 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 def load_usecases(file_path):
     return pd.read_excel(file_path)
 
-usecases_df = load_usecases("PromptUseCases.xlsx")
+usecases_df = load_usecases("Dataset/PromptUseCases.xlsx")
 
 # ---------------------------------
 # Session State Init
@@ -70,15 +81,36 @@ if "last_rubric_rows" not in st.session_state:
 if "last_overall_raw" not in st.session_state:
     st.session_state.last_overall_raw = ""
 
-# Latest score for gauge
 if "latest_overall_100" not in st.session_state:
     st.session_state.latest_overall_100 = None
 
 if "latest_overall_raw" not in st.session_state:
     st.session_state.latest_overall_raw = ""
 
-# Bind prompt input to session state
+# input bound to widget key
 if "user_prompt" not in st.session_state:
+    st.session_state.user_prompt = ""
+
+# ---------------------------------
+# Concurrency-safe Next Scenario callback
+# ---------------------------------
+def next_scenario():
+    # Pick a new random scenario
+    st.session_state.scenario_row = usecases_df.sample(1).iloc[0]
+
+    # Reset attempt flow
+    st.session_state.attempt_count = 0
+    st.session_state.show_correct_prompt = False
+
+    # Clear outputs
+    st.session_state.last_evaluation_text = ""
+    st.session_state.last_analysis_text = ""
+    st.session_state.last_rubric_rows = []
+    st.session_state.last_overall_raw = ""
+    st.session_state.latest_overall_100 = None
+    st.session_state.latest_overall_raw = ""
+
+    # ✅ SAFE reset for widget because this runs as callback (before widgets instantiate on rerun)
     st.session_state.user_prompt = ""
 
 # ---------------------------------
@@ -105,31 +137,18 @@ def _normalize_eval_text(text: str) -> str:
     t = text
     t = t.replace("**", "").replace("__", "").replace("`", "")
     t = t.replace("•", "- ").replace("◦", "- ")
-    # keep newlines; only collapse spaces/tabs
     t = re.sub(r"[ \t]+", " ", t)
     return t.strip()
 
 def _force_newlines_for_sections(text: str) -> str:
-    """
-    ✅ Critical fix:
-    If model prints "Clarity: 18/20 Completeness: 19/20 ..." in same line,
-    force a newline before each rubric / section header so parsing becomes stable.
-    """
     if not text:
         return ""
-
     t = text
-
-    # Force newline before rubric labels (except at start)
     t = re.sub(r"(?i)\s+(Clarity|Completeness|Context|Role|Output\s*Format)\s*:", r"\n\1:", t)
-
-    # Force newline before major sections
     t = re.sub(r"(?i)\s+(OVERALL\s*[_\-\s]*SCORE)\s*:", r"\n\1:", t)
     t = re.sub(r"(?i)\s+(STRENGTHS)\b", r"\n\1", t)
     t = re.sub(r"(?i)\s+(IMPROVEMENT[_\-\s]*AREAS)\b", r"\n\1", t)
     t = re.sub(r"(?i)\s+(Scenario)\s*:", r"\n\1:", t)
-
-    # clean extra blank lines
     t = re.sub(r"\n{3,}", "\n\n", t)
     return t.strip()
 
@@ -141,14 +160,7 @@ def parse_overall_score(evaluation_text: str):
     return None, None
 
 def parse_rubric_lines(evaluation_text: str):
-    """
-    ✅ FIXED PARSER:
-    - First force newlines so each rubric is its own line.
-    - Then parse per-line (MULTILINE) so feedback can't “eat” the next rubric.
-    """
     t = _force_newlines_for_sections(_normalize_eval_text(evaluation_text))
-
-    # Line-based pattern: rubric: 18/20 (feedback)
     line_pattern = re.compile(
         r"^(Clarity|Completeness|Context|Role|Output\s*Format)\s*:\s*(\d+)\s*/\s*(\d+)\s*(?:\((.*?)\))?\s*$",
         flags=re.IGNORECASE | re.MULTILINE
@@ -166,11 +178,10 @@ def parse_rubric_lines(evaluation_text: str):
         score = int(m.group(2))
         mx = int(m.group(3))
         fb = (m.group(4) or "").strip()
-        fb = fb if fb else "-"  # if model didn't provide parentheses feedback
+        fb = fb if fb else "-"
 
         found.append({"rubric": label, "score": score, "max": mx, "feedback": fb})
 
-    # infer max (fallback 20)
     inferred_max = 20
     for r in found:
         if isinstance(r.get("max"), int):
@@ -181,7 +192,6 @@ def parse_rubric_lines(evaluation_text: str):
     ordered = []
     for rname in RUBRICS:
         ordered.append(by_name.get(rname, {"rubric": rname, "score": None, "max": inferred_max, "feedback": "-"}))
-
     return ordered
 
 def overall_to_100(obtained: int, mx: int):
@@ -254,11 +264,18 @@ def extract_strengths_improvements(evaluation_text: str):
     return strengths, improvements
 
 # ---------------------------------
-# LLM Calls
+# Strict LLM Evaluation (reduces inflated scores)
 # ---------------------------------
 def evaluate_prompt(sector, module, scenario, user_prompt):
-    # ✅ Make feedback always in parentheses (line-based)
     eval_prompt = f"""
+You are an extremely strict evaluator.
+
+Scoring Rules (IMPORTANT):
+- If the prompt is vague, generic, or missing role/context/output format → give LOW scores (0–8).
+- If prompt is incomplete or unclear → OVERALL_SCORE must be below 50.
+- Only detailed, specific, well-structured prompts can score above 80.
+- Do NOT inflate scores.
+
 Return EXACTLY in this template (same labels, same order).
 Rules:
 - Each rubric MUST be on its OWN LINE.
@@ -337,31 +354,32 @@ Include:
     return response.choices[0].message.content
 
 # ---------------------------------
-# UI
+# Scenario Data
 # ---------------------------------
-#st.title("PromptPilot")
-#st.markdown("Practice, Evaluate, and Improve Your AI Prompt Writing Skills")
-
 scenario_row = st.session_state.scenario_row
 scenario_text = scenario_row["Scenario / Case Study"]
 selected_sector = scenario_row["Sector"]
 selected_module = scenario_row["Module / Department"]
 
-# ✅ NEW: Expected prompt from Excel col 4 (index 3)
+# Expected prompt from Excel Column 4 (index 3)
 expected_prompt_from_excel = ""
 try:
     expected_prompt_from_excel = str(scenario_row.iloc[3]) if not pd.isna(scenario_row.iloc[3]) else ""
 except Exception:
     expected_prompt_from_excel = ""
 
+# ---------------------------------
+# Two-column layout (Scenario | Write Prompt)
+# ---------------------------------
 left, right = st.columns([1, 1])
 
 with left:
     st.subheader("📘 Scenario")
     st.markdown(
-        f"<div style='padding:15px;background:#f0f8ff;border-radius:8px'>{scenario_text}</div>",
+        f"<div style='padding:15px;background:#f0f8ff;border-radius:8px; white-space:pre-wrap;'>{scenario_text}</div>",
         unsafe_allow_html=True
     )
+
     if st.button("💡 Get Hint"):
         st.info(
             "Hint:\n"
@@ -401,23 +419,42 @@ if evaluate_clicked:
 
         st.session_state.last_rubric_rows = rubric_rows
         st.session_state.last_overall_raw = f"{overall_obt}/{overall_max}" if overall_obt is not None else ""
-
         st.session_state.latest_overall_100 = latest_overall_100
         st.session_state.latest_overall_raw = st.session_state.last_overall_raw
 
 # ---------------------------------
-# Tabs
+# ✅ Attempt Banner + Next Scenario ABOVE Tabs (your Image 2)
 # ---------------------------------
 has_result = bool(st.session_state.last_evaluation_text)
 
+if has_result:
+    # attempt banner above tabs
+    st.markdown(
+        f"""
+        <div style="background:#e8f3ff; padding:12px 14px; border-radius:10px; margin-top:6px; margin-bottom:10px; border:1px solid #cfe6ff;">
+            <b>Attempt:</b> {st.session_state.attempt_count} / 2
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Next Scenario button only after 2 attempts
+    if st.session_state.attempt_count >= 2:
+        st.button("➡️ Next Scenario", on_click=next_scenario)
+
+# ---------------------------------
+# Tabs
+# ---------------------------------
 tab_names = ["📊 Score", "🔍 Performance Breakdown"]
 if st.session_state.show_correct_prompt:
-    tab_names.append("✅ Sample Prompt 1")
-    tab_names.append("📌 Sample Prompt 2")  # ✅ NEW TAB
+    tab_names.append("✅ Sample Prompt")
+    tab_names.append("📌 Expected Prompt")
 
 tabs = st.tabs(tab_names)
 
+# ---------------------------------
 # TAB 1: Score
+# ---------------------------------
 with tabs[0]:
     if not has_result:
         st.info("Write a prompt and click **Evaluate Prompt** to see the score.")
@@ -434,22 +471,22 @@ with tabs[0]:
             else:
                 st.warning("Could not extract latest OVERALL_SCORE from the evaluation output.")
 
-            st.info(f"Attempt: {st.session_state.attempt_count} / 2")
-
         with c2:
             if st.session_state.latest_overall_100 is not None:
                 show_score_speedometer(st.session_state.latest_overall_100, title="Latest Overall Score")
             else:
                 st.warning("Could not extract OVERALL_SCORE for the speedometer.")
 
-# TAB 2: Performance Breakdown (Breakdown first, then strengths below)
+# ---------------------------------
+# TAB 2: Performance Breakdown
+# ---------------------------------
 with tabs[1]:
     if not has_result:
         st.info("Prompt breakdown will appear after evaluation.")
     else:
         st.subheader("🔍 Your Prompt Breakdown")
         st.markdown(
-            f"<div style='background:#eef;padding:12px;border-radius:8px'>{st.session_state.last_analysis_text}</div>",
+            f"<div style='background:#eef;padding:12px;border-radius:8px; white-space:pre-wrap;'>{st.session_state.last_analysis_text}</div>",
             unsafe_allow_html=True
         )
 
@@ -467,20 +504,24 @@ with tabs[1]:
             unsafe_allow_html=True
         )
 
+# ---------------------------------
 # TAB 3: Sample Prompt (after 2 attempts)
+# ---------------------------------
 if st.session_state.show_correct_prompt:
     with tabs[2]:
-        st.subheader("✅ Sample Prompt 1" )
+        st.subheader("✅ Sample Prompt")
         correct_prompt = generate_correct_prompt(scenario_text)
         st.markdown(
             f"<div style='background:#d0f0c0;padding:15px;border-radius:8px; white-space:pre-wrap;'>{correct_prompt}</div>",
             unsafe_allow_html=True
         )
 
-# TAB 4: Expected Prompt (Excel col 4) (after 2 attempts)
+# ---------------------------------
+# TAB 4: Expected Prompt
+# ---------------------------------
 if st.session_state.show_correct_prompt:
     with tabs[3]:
-        st.subheader("📌 Sample Prompt 2")
+        st.subheader("📌 Expected Prompt (from Excel - Column 4)")
         if expected_prompt_from_excel.strip():
             st.markdown(
                 f"<div style='background:#f7f7f7;padding:15px;border-radius:8px; border:1px solid #ddd; white-space:pre-wrap;'>{expected_prompt_from_excel}</div>",
@@ -488,4 +529,3 @@ if st.session_state.show_correct_prompt:
             )
         else:
             st.info("No Expected Prompt found in Excel Column 4 for this scenario.")
-
