@@ -86,7 +86,7 @@ def load_usecases(file_path: str) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-DATA_PATH = "Dataset/PromptUseCases.xlsx"
+DATA_PATH = "PromptUseCases.xlsx"
 try:
     usecases_df = load_usecases(DATA_PATH)
 except Exception:
@@ -767,10 +767,10 @@ with st.sidebar:
     st.divider()
     st.caption("API status")
     if client is None:
-        st.error("GROQ_API_KEY not found in Streamlit secrets.")
+        st.error("API_KEY not found in Streamlit secrets.")
         st.info("Add it in Streamlit Cloud → App → Settings → Secrets.")
     else:
-        st.success("Groq client ready ✅")
+        st.success("Client ready ✅")
 
 # ---------------------------------
 # Two-column layout (Scenario | Write Prompt)
@@ -1187,3 +1187,4 @@ if st.session_state.show_correct_prompt:
             )
         else:
             st.info("No Sample Prompt found for this scenario (missing Expected Prompt column or empty value).")
+
