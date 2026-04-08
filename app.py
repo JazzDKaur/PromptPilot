@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 # ---------------------------------
 # Config
 # ---------------------------------
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 2
 
 # ---------------------------------
 # Page Configuration
