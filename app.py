@@ -86,7 +86,7 @@ def load_usecases(file_path: str) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-DATA_PATH = "PromptUseCases.xlsx"
+DATA_PATH = "PromptUseCases1.xlsx"
 try:
     usecases_df = load_usecases(DATA_PATH)
 except Exception:
